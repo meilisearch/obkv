@@ -1,0 +1,9 @@
+[package]
+name = "obkv"
+description = "One-byte key and a value store"
+version = "0.1.0"
+authors = ["Kerollmops <clement@meilisearch.com>"]
+edition = "2018"
+
+[dev-dependencies]
+quickcheck = "0.9.2"
