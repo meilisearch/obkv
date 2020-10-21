@@ -36,6 +36,7 @@ use std::iter::Fuse;
 use self::varint::{varint_encode32, varint_decode32};
 
 /// An `obkv` database writer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KvWriter<W> {
     last_key: Option<u8>,
     writer: W,
@@ -131,7 +132,7 @@ impl<W: io::Write> KvWriter<W> {
 }
 
 /// A reader of `obkv` databases.
-#[derive(Default)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KvReader<'a> {
     bytes: &'a [u8],
 }
@@ -198,6 +199,7 @@ impl<'a> KvReader<'a> {
 }
 
 /// An iterator over a `obkv` database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KvIter<'a> {
     bytes: &'a [u8],
     offset: usize,
