@@ -119,6 +119,20 @@ impl<W: io::Write> KvWriter<W> {
         Ok(())
     }
 
+    /// Insert the key value pairs into the database, keys must be
+    /// inserted in order and must be inserted only one time.
+    pub fn extend<I, V>(&mut self, iter: I) -> io::Result<()>
+    where
+        I: IntoIterator<Item = (u8, V)>,
+        V: AsRef<[u8]>,
+    {
+        for (k, v) in iter {
+            self.insert(k, v)?;
+        }
+
+        Ok(())
+    }
+
     /// Flushes then extract the internal writer that now contains the keys value entries.
     pub fn into_inner(mut self) -> io::Result<W> {
         self.writer.flush()?;
