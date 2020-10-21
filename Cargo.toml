@@ -1,8 +1,15 @@
 [package]
 name = "obkv"
-description = "One-byte key and a value store"
 version = "0.1.0"
+
+description = "One-byte key and a value store"
+repository = "https://github.com/Kerollmops/obkv"
 authors = ["Kerollmops <clement@meilisearch.com>"]
+license = "MIT"
+
+categories = ["encoding", "database-implementations"]
+keywords = ["lightweight", "key-value-store", "minimalist"]
+
 edition = "2018"
 
 [dev-dependencies]
