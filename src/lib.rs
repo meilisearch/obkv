@@ -3,8 +3,9 @@
 
 mod varint;
 
-use std::io::{self, Error, ErrorKind::Other};
 use std::convert::TryInto;
+use std::io::{self, Error, ErrorKind::Other};
+use std::iter::Fuse;
 
 use self::varint::{varint_encode32, varint_decode32};
 
@@ -69,30 +70,40 @@ impl<'a> KvReader<'a> {
     }
 
     pub fn get(&self, requested_key: u8) -> Option<&'a [u8]> {
-        let mut offset = 0;
+        self.iter()
+            .take_while(|(key, _)| *key <= requested_key)
+            .find(|(key, _)| *key == requested_key)
+            .map(|(_, val)| val)
+    }
 
-        loop {
-            let key = *self.bytes.get(offset)?;
-            offset += 1;
+    pub fn iter(&self) -> Fuse<KvIter<'a>> {
+        KvIter { bytes: self.bytes, offset: 0 }.fuse()
+    }
+}
 
-            let val_len = {
-                let mut val_len = 0;
-                let bytes = self.bytes.get(offset..)?;
-                offset += varint_decode32(bytes, &mut val_len)?;
-                val_len as usize
-            };
+pub struct KvIter<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
 
-            let val = self.bytes.get(offset..offset + val_len)?;
-            offset += val_len;
+impl<'a> Iterator for KvIter<'a> {
+    type Item = (u8, &'a [u8]);
 
-            if key == requested_key {
-                return Some(val);
-            }
+    fn next(&mut self) -> Option<Self::Item> {
+        let key = *self.bytes.get(self.offset)?;
+        self.offset += 1;
 
-            if key > requested_key {
-                return None;
-            }
-        }
+        let val_len = {
+            let mut val_len = 0;
+            let bytes = self.bytes.get(self.offset..)?;
+            self.offset += varint_decode32(bytes, &mut val_len)?;
+            val_len as usize
+        };
+
+        let val = self.bytes.get(self.offset..self.offset + val_len)?;
+        self.offset += val_len;
+
+        Some((key, val))
     }
 }
 
@@ -101,7 +112,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn easy() {
+    fn gets() {
         let mut writer = KvWriter::memory();
         writer.insert(0, b"hello").unwrap();
         writer.insert(1, b"blue").unwrap();
@@ -113,5 +124,22 @@ mod tests {
         assert_eq!(reader.get(1), Some(&b"blue"[..]));
         assert_eq!(reader.get(10), None);
         assert_eq!(reader.get(255), Some(&b"world"[..]));
+    }
+
+    #[test]
+    fn iter() {
+        let mut writer = KvWriter::memory();
+        writer.insert(0, b"hello").unwrap();
+        writer.insert(1, b"blue").unwrap();
+        writer.insert(255, b"world").unwrap();
+        let obkv = writer.into_inner().unwrap();
+
+        let reader = KvReader::new(&obkv);
+        let mut iter = reader.iter();
+        assert_eq!(iter.next(), Some((0, &b"hello"[..])));
+        assert_eq!(iter.next(), Some((1, &b"blue"[..])));
+        assert_eq!(iter.next(), Some((255, &b"world"[..])));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None); // is it fused?
     }
 }
