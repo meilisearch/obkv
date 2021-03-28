@@ -13,5 +13,8 @@ keywords = ["lightweight", "key-value-store", "minimalist"]
 
 edition = "2018"
 
+[dependencies]
+bytemuck = "1.5.1"
+
 [dev-dependencies]
 quickcheck = "0.9.2"
