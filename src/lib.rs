@@ -46,13 +46,13 @@ pub type KvWriterU32<W> = KvWriter<W, u32>;
 /// An `obkv` writer that uses `u64` keys.
 pub type KvWriterU64<W> = KvWriter<W, u64>;
 
-/// A reader that can read obkvs with `u8` keys.
+/// A reader that can read `obkv`s with `u8` keys.
 pub type KvReaderU8<'a> = KvReader<'a, u8>;
-/// A reader that can read obkvs with `u16` keys.
+/// A reader that can read `obkv`s with `u16` keys.
 pub type KvReaderU16<'a> = KvReader<'a, u16>;
-/// A reader that can read obkvs with `u32` keys.
+/// A reader that can read `obkv`s with `u32` keys.
 pub type KvReaderU32<'a> = KvReader<'a, u32>;
-/// A reader that can read obkvs with `u64` keys.
+/// A reader that can read `obkv`s with `u64` keys.
 pub type KvReaderU64<'a> = KvReader<'a, u64>;
 
 /// An `obkv` database writer.
@@ -270,11 +270,11 @@ impl<'a, K: Key> Iterator for KvIter<'a, K> {
     fn next(&mut self) -> Option<Self::Item> {
         let key = self
             .bytes
-            .get(self.offset..self.offset + K::BYTES::len())
+            .get(self.offset..self.offset + K::BYTES_SIZE)
             .and_then(|s| s.try_into().ok())
             .map(K::from_be_bytes)?;
 
-        self.offset += K::BYTES::len();
+        self.offset += K::BYTES_SIZE;
 
         let val_len = {
             let mut val_len = 0;
@@ -290,35 +290,24 @@ impl<'a, K: Key> Iterator for KvIter<'a, K> {
     }
 }
 
-/// Represents any array of bytes.
-pub trait BytesArray: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]> {
-    /// Returns the number of bytes this array contains.
-    fn len() -> usize;
-}
-
-impl<const N: usize> BytesArray for [u8; N] {
-    fn len() -> usize {
-        N
-    }
-}
-
 /// A trait that represents a key, this key will be encoded to disk.
 pub trait Key: Copy {
-    /// The array that will contains the bytes of the key.
-    type BYTES: BytesArray;
+    /// The number of bytes the `BYTES` array contains.
+    const BYTES_SIZE: usize;
+    /// The array that will contain the bytes of the key.
+    type BYTES: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]>;
 
-    /// Returns a slice of the key bytes in its native representation,
-    /// in native-endian.
+    /// Returns an array of the key bytes in big-endian.
     fn to_be_bytes(&self) -> Self::BYTES;
-
-    /// Returns the key that corresponds to the given bytes.
+    /// Returns the key that corresponds to the given bytes array.
     fn from_be_bytes(array: Self::BYTES) -> Self;
 }
 
 macro_rules! impl_key {
     ($($t:ty),+) => {
         $(impl Key for $t {
-            type BYTES = [u8; std::mem::size_of::<$t>()];
+            const BYTES_SIZE: usize = std::mem::size_of::<$t>();
+            type BYTES = [u8; Self::BYTES_SIZE];
 
             fn to_be_bytes(&self) -> Self::BYTES {
                 <$t>::to_be_bytes(*self)
