@@ -6,15 +6,15 @@
 //! ## Example: Creating an `obkv` and iterating over the entries
 //!
 //! ```
-//! use obkv::{KvWriter, KvReader};
+//! use obkv::{KvWriterU16, KvReaderU16};
 //!
-//! let mut writer = KvWriter::memory();
-//! writer.insert(0u16, b"hello").unwrap();
+//! let mut writer = KvWriterU16::memory();
+//! writer.insert(0, b"hello").unwrap();
 //! writer.insert(1, b"blue").unwrap();
 //! writer.insert(255, b"world").unwrap();
 //! let obkv = writer.into_inner().unwrap();
 //!
-//! let mut iter = KvReader::<u16>::new(&obkv).iter();
+//! let mut iter = KvReaderU16::new(&obkv).iter();
 //! assert_eq!(iter.next(), Some((0, &b"hello"[..])));
 //! assert_eq!(iter.next(), Some((1, &b"blue"[..])));
 //! assert_eq!(iter.next(), Some((255, &b"world"[..])));
@@ -25,7 +25,8 @@
 #![warn(missing_docs)]
 
 #[cfg(test)]
-#[macro_use] extern crate quickcheck;
+#[macro_use]
+extern crate quickcheck;
 
 mod varint;
 
@@ -34,7 +35,17 @@ use std::io::{self, Error, ErrorKind::Other};
 use std::iter::Fuse;
 use std::marker::PhantomData;
 
-use self::varint::{varint_encode32, varint_decode32};
+use self::varint::{varint_decode32, varint_encode32};
+
+pub type KvWriterU8<W> = KvWriter<W, u8>;
+pub type KvWriterU16<W> = KvWriter<W, u16>;
+pub type KvWriterU32<W> = KvWriter<W, u32>;
+pub type KvWriterU64<W> = KvWriter<W, u64>;
+
+pub type KvReaderU8<'a> = KvReader<'a, u8>;
+pub type KvReaderU16<'a> = KvReader<'a, u16>;
+pub type KvReaderU32<'a> = KvReader<'a, u32>;
+pub type KvReaderU64<'a> = KvReader<'a, u64>;
 
 /// An `obkv` database writer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -47,18 +58,21 @@ impl<K> KvWriter<Vec<u8>, K> {
     /// Creates an in memory `KvWriter` that writes the bytes into a `Vec<u8>`.
     ///
     /// ```
-    /// use obkv::KvWriter;
+    /// use obkv::KvWriterU16;
     ///
-    /// let mut writer = KvWriter::memory();
+    /// let mut writer = KvWriterU16::memory();
     ///
-    /// writer.insert(0u16, b"hello").unwrap();
+    /// writer.insert(0, b"hello").unwrap();
     /// writer.insert(1, b"blue").unwrap();
     /// writer.insert(255, b"world").unwrap();
     ///
     /// let vec = writer.into_inner().unwrap();
     /// ```
     pub fn memory() -> KvWriter<Vec<u8>, K> {
-        KvWriter { last_key: None, writer: Vec::new() }
+        KvWriter {
+            last_key: None,
+            writer: Vec::new(),
+        }
     }
 }
 
@@ -67,18 +81,21 @@ impl<W, K> KvWriter<W, K> {
     /// the given `io::Write` type (e.g. `File`, `Vec<u8>`).
     ///
     /// ```
-    /// use obkv::KvWriter;
+    /// use obkv::KvWriterU16;
     ///
-    /// let mut writer = KvWriter::new(Vec::new());
+    /// let mut writer = KvWriterU16::new(Vec::new());
     ///
-    /// writer.insert(0u16, b"hello").unwrap();
+    /// writer.insert(0, b"hello").unwrap();
     /// writer.insert(1, b"blue").unwrap();
     /// writer.insert(255, b"world").unwrap();
     ///
     /// let vec = writer.into_inner().unwrap();
     /// ```
     pub fn new(writer: W) -> KvWriter<W, K> {
-        KvWriter { last_key: None, writer }
+        KvWriter {
+            last_key: None,
+            writer,
+        }
     }
 }
 
@@ -87,11 +104,11 @@ impl<W: io::Write, K: Key + PartialOrd> KvWriter<W, K> {
     /// inserted in order and must be inserted only one time.
     ///
     /// ```
-    /// use obkv::KvWriter;
+    /// use obkv::KvWriterU16;
     ///
-    /// let mut writer = KvWriter::new(Vec::new());
+    /// let mut writer = KvWriterU16::new(Vec::new());
     ///
-    /// writer.insert(0u16, b"hello").unwrap();
+    /// writer.insert(0, b"hello").unwrap();
     /// writer.insert(1, b"blue").unwrap();
     /// writer.insert(255, b"world").unwrap();
     ///
@@ -99,7 +116,10 @@ impl<W: io::Write, K: Key + PartialOrd> KvWriter<W, K> {
     /// ```
     pub fn insert<A: AsRef<[u8]>>(&mut self, key: K, value: A) -> io::Result<()> {
         if self.last_key.map_or(false, |last| key <= last) {
-            return Err(Error::new(Other, "keys must be inserted in order and only one time"));
+            return Err(Error::new(
+                Other,
+                "keys must be inserted in order and only one time",
+            ));
         }
 
         let val = value.as_ref();
@@ -157,35 +177,39 @@ impl<'a, K> KvReader<'a, K> {
     /// Construct a reader on top of a memory area.
     ///
     /// ```
-    /// use obkv::KvReader;
+    /// use obkv::KvReaderU16;
     ///
-    /// let mut iter = KvReader::<u16>::new(&[]).iter();
+    /// let mut iter = KvReaderU16::new(&[]).iter();
     /// assert_eq!(iter.next(), None);
     /// ```
     pub fn new(bytes: &[u8]) -> KvReader<K> {
-        KvReader { bytes, _phantom: PhantomData }
+        KvReader {
+            bytes,
+            _phantom: PhantomData,
+        }
     }
 
     /// Returns the value associated with the given key
     /// or `None` if the key is not present.
     ///
     /// ```
-    /// use obkv::{KvWriter, KvReader};
+    /// use obkv::{KvWriterU16, KvReaderU16};
     ///
-    /// let mut writer = KvWriter::memory();
-    /// writer.insert(0u16, b"hello").unwrap();
+    /// let mut writer = KvWriterU16::memory();
+    /// writer.insert(0, b"hello").unwrap();
     /// writer.insert(1, b"blue").unwrap();
     /// writer.insert(255, b"world").unwrap();
     /// let obkv = writer.into_inner().unwrap();
     ///
-    /// let reader = KvReader::<u16>::new(&obkv);
+    /// let reader = KvReaderU16::new(&obkv);
     /// assert_eq!(reader.get(0), Some(&b"hello"[..]));
     /// assert_eq!(reader.get(1), Some(&b"blue"[..]));
     /// assert_eq!(reader.get(10), None);
     /// assert_eq!(reader.get(255), Some(&b"world"[..]));
     /// ```
     pub fn get(&self, requested_key: K) -> Option<&'a [u8]>
-    where K: Key + PartialOrd,
+    where
+        K: Key + PartialOrd,
     {
         self.iter()
             .take_while(|(key, _)| *key <= requested_key)
@@ -196,15 +220,15 @@ impl<'a, K> KvReader<'a, K> {
     /// Returns an iterator over all the keys in the key-value store.
     ///
     /// ```
-    /// use obkv::{KvWriter, KvReader};
+    /// use obkv::{KvWriterU16, KvReaderU16};
     ///
-    /// let mut writer = KvWriter::memory();
-    /// writer.insert(0u16, b"hello").unwrap();
+    /// let mut writer = KvWriterU16::memory();
+    /// writer.insert(0, b"hello").unwrap();
     /// writer.insert(1, b"blue").unwrap();
     /// writer.insert(255, b"world").unwrap();
     /// let obkv = writer.into_inner().unwrap();
     ///
-    /// let mut iter = KvReader::<u16>::new(&obkv).iter();
+    /// let mut iter = KvReaderU16::new(&obkv).iter();
     /// assert_eq!(iter.next(), Some((0, &b"hello"[..])));
     /// assert_eq!(iter.next(), Some((1, &b"blue"[..])));
     /// assert_eq!(iter.next(), Some((255, &b"world"[..])));
@@ -212,9 +236,15 @@ impl<'a, K> KvReader<'a, K> {
     /// assert_eq!(iter.next(), None); // is it fused?
     /// ```
     pub fn iter(&self) -> Fuse<KvIter<'a, K>>
-    where K: Key,
+    where
+        K: Key,
     {
-        KvIter { bytes: self.bytes, offset: 0, _phantom: PhantomData }.fuse()
+        KvIter {
+            bytes: self.bytes,
+            offset: 0,
+            _phantom: PhantomData,
+        }
+        .fuse()
     }
 }
 
@@ -230,7 +260,10 @@ impl<'a, K: Key> Iterator for KvIter<'a, K> {
     type Item = (K, &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let key = self.bytes.get(self.offset..self.offset + K::SIZE).map(K::from_ne_bytes)?;
+        let key = self
+            .bytes
+            .get(self.offset..self.offset + K::SIZE)
+            .map(K::from_ne_bytes)?;
         self.offset += K::SIZE;
 
         let val_len = {
@@ -257,12 +290,16 @@ pub trait Key: Copy {
 macro_rules! impl_key {
     ($($t:ty),+) => {
         $(impl Key for $t {
+            /// The number of bytes of the key.
             const SIZE: usize = std::mem::size_of::<$t>();
 
+            /// Returns a slice of the key bytes in its native representation,
+            /// in native-endian.
             fn to_ne_bytes(&self) -> &[u8] {
                 bytemuck::bytes_of(self)
             }
 
+            /// Returns the key that corresponds to the given bytes.
             fn from_ne_bytes(slice: &[u8]) -> Self {
                 std::convert::TryInto::try_into(slice)
                     .map(<$t>::from_ne_bytes)
