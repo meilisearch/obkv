@@ -1,7 +1,7 @@
 [package]
 name = "obkv"
-version = "0.1.1"
-description = "One-byte key and a value store"
+version = "0.2.0"
+description = "Optimized-bytes key and a value store"
 repository = "https://github.com/Kerollmops/obkv"
 documentation = "https://docs.rs/obkv"
 authors = ["Kerollmops <clement@meilisearch.com>"]
