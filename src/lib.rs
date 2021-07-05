@@ -30,21 +30,29 @@ extern crate quickcheck;
 
 mod varint;
 
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::io::{self, Error, ErrorKind::Other};
 use std::iter::Fuse;
 use std::marker::PhantomData;
 
 use self::varint::{varint_decode32, varint_encode32};
 
+/// An `obkv` writer that uses `u8` keys.
 pub type KvWriterU8<W> = KvWriter<W, u8>;
+/// An `obkv` writer that uses `u16` keys.
 pub type KvWriterU16<W> = KvWriter<W, u16>;
+/// An `obkv` writer that uses `u32` keys.
 pub type KvWriterU32<W> = KvWriter<W, u32>;
+/// An `obkv` writer that uses `u64` keys.
 pub type KvWriterU64<W> = KvWriter<W, u64>;
 
+/// A reader that can read obkvs with `u8` keys.
 pub type KvReaderU8<'a> = KvReader<'a, u8>;
+/// A reader that can read obkvs with `u16` keys.
 pub type KvReaderU16<'a> = KvReader<'a, u16>;
+/// A reader that can read obkvs with `u32` keys.
 pub type KvReaderU32<'a> = KvReader<'a, u32>;
+/// A reader that can read obkvs with `u64` keys.
 pub type KvReaderU64<'a> = KvReader<'a, u64>;
 
 /// An `obkv` database writer.
@@ -131,7 +139,7 @@ impl<W: io::Write, K: Key + PartialOrd> KvWriter<W, K> {
         let mut buffer = [0; 5];
         let len_bytes = varint_encode32(&mut buffer, val_len);
 
-        self.writer.write_all(key.to_ne_bytes())?;
+        self.writer.write_all(key.to_be_bytes().as_ref())?;
         self.writer.write_all(len_bytes)?;
         self.writer.write_all(val)?;
 
@@ -262,9 +270,11 @@ impl<'a, K: Key> Iterator for KvIter<'a, K> {
     fn next(&mut self) -> Option<Self::Item> {
         let key = self
             .bytes
-            .get(self.offset..self.offset + K::SIZE)
-            .map(K::from_ne_bytes)?;
-        self.offset += K::SIZE;
+            .get(self.offset..self.offset + K::BYTES::len())
+            .and_then(|s| s.try_into().ok())
+            .map(K::from_be_bytes)?;
+
+        self.offset += K::BYTES::len();
 
         let val_len = {
             let mut val_len = 0;
@@ -280,30 +290,42 @@ impl<'a, K: Key> Iterator for KvIter<'a, K> {
     }
 }
 
-pub trait Key: Copy {
-    const SIZE: usize;
+/// Represents any array of bytes.
+pub trait BytesArray: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]> {
+    /// Returns the number of bytes this array contains.
+    fn len() -> usize;
+}
 
-    fn to_ne_bytes(&self) -> &[u8];
-    fn from_ne_bytes(slice: &[u8]) -> Self;
+impl<const N: usize> BytesArray for [u8; N] {
+    fn len() -> usize {
+        N
+    }
+}
+
+/// A trait that represents a key, this key will be encoded to disk.
+pub trait Key: Copy {
+    /// The array that will contains the bytes of the key.
+    type BYTES: BytesArray;
+
+    /// Returns a slice of the key bytes in its native representation,
+    /// in native-endian.
+    fn to_be_bytes(&self) -> Self::BYTES;
+
+    /// Returns the key that corresponds to the given bytes.
+    fn from_be_bytes(array: Self::BYTES) -> Self;
 }
 
 macro_rules! impl_key {
     ($($t:ty),+) => {
         $(impl Key for $t {
-            /// The number of bytes of the key.
-            const SIZE: usize = std::mem::size_of::<$t>();
+            type BYTES = [u8; std::mem::size_of::<$t>()];
 
-            /// Returns a slice of the key bytes in its native representation,
-            /// in native-endian.
-            fn to_ne_bytes(&self) -> &[u8] {
-                bytemuck::bytes_of(self)
+            fn to_be_bytes(&self) -> Self::BYTES {
+                <$t>::to_be_bytes(*self)
             }
 
-            /// Returns the key that corresponds to the given bytes.
-            fn from_ne_bytes(slice: &[u8]) -> Self {
-                std::convert::TryInto::try_into(slice)
-                    .map(<$t>::from_ne_bytes)
-                    .unwrap()
+            fn from_be_bytes(array: Self::BYTES) -> Self {
+                Self::from_be_bytes(array)
             }
         })+
     };
