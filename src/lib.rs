@@ -1,7 +1,8 @@
-//! `obkv` stands for one-byte key and a value store.
+//! `obkv` stands for optimized-bytes key and a value store.
 //!
 //! The main purpose of this library is to be able to store key value entries
-//! where the key can be represented by one byte, this allows a lot of optimizations.
+//! where the key can be represented by an optimized amount of bytes,
+//! this allows a lot of optimizations.
 //!
 //! ## Example: Creating an `obkv` and iterating over the entries
 //!
