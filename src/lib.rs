@@ -56,14 +56,15 @@ pub type KvReaderU32<'a> = KvReader<'a, u32>;
 /// A reader that can read `obkv`s with `u64` keys.
 pub type KvReaderU64<'a> = KvReader<'a, u64>;
 
-/// A reader that can read `obkv`s with `u8` keys.
-pub type KvReaderOwnedU8 = KvReaderOwned<u8>;
-/// A reader that can read `obkv`s with `u16` keys.
-pub type KvReaderOwnedU16 = KvReaderOwned<u16>;
-/// A reader that can read `obkv`s with `u32` keys.
-pub type KvReaderOwnedU32 = KvReaderOwned<u32>;
-/// A reader that can read `obkv`s with `u64` keys.
-pub type KvReaderOwnedU64 = KvReaderOwned<u64>;
+/// An owned reader that can read `obkv`s with `u8` keys.
+pub type KvReaderOwnedU8<B> = KvReaderOwned<u8, B>;
+/// An owned reader that can read `obkv`s with `u16` keys.
+pub type KvReaderOwnedU16<B> = KvReaderOwned<u16, B>;
+/// An owned reader that can read `obkv`s with `u32` keys.
+pub type KvReaderOwnedU32<B> = KvReaderOwned<u32, B>;
+/// An owned reader that can read `obkv`s with `u64` keys.
+pub type KvReaderOwnedU64<B> = KvReaderOwned<u64, B>;
+
 /// An `obkv` database writer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KvWriter<W, K> {
@@ -265,13 +266,13 @@ impl<'a, K> KvReader<'a, K> {
     }
 }
 
-/// A owned counterpart to a `KvReader`.
-pub struct KvReaderOwned<K> {
-    bytes: Vec<u8>,
+/// An owned counterpart to a `KvReader`.
+pub struct KvReaderOwned<K, B> {
+    bytes: B,
     _phantom: PhantomData<K>,
 }
 
-impl<K> KvReaderOwned<K> {
+impl<K, B: AsRef<[u8]>> KvReaderOwned<K, B> {
     /// Construct a reader owning a memory area.
     ///
     /// ```
@@ -281,7 +282,7 @@ impl<K> KvReaderOwned<K> {
     /// let mut iter = reader.iter();
     /// assert_eq!(iter.next(), None);
     /// ```
-    pub fn new(bytes: Vec<u8>) -> KvReaderOwned<K> {
+    pub fn new(bytes: B) -> KvReaderOwned<K, B> {
         KvReaderOwned {
             bytes,
             _phantom: PhantomData,
@@ -340,7 +341,7 @@ impl<K> KvReaderOwned<K> {
         K: Key,
     {
         KvIter {
-            bytes: &self.bytes,
+            bytes: &self.bytes.as_ref(),
             offset: 0,
             _phantom: PhantomData,
         }
