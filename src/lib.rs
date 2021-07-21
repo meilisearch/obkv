@@ -56,6 +56,14 @@ pub type KvReaderU32<'a> = KvReader<'a, u32>;
 /// A reader that can read `obkv`s with `u64` keys.
 pub type KvReaderU64<'a> = KvReader<'a, u64>;
 
+/// A reader that can read `obkv`s with `u8` keys.
+pub type KvReaderOwnedU8 = KvReaderOwned<u8>;
+/// A reader that can read `obkv`s with `u16` keys.
+pub type KvReaderOwnedU16 = KvReaderOwned<u16>;
+/// A reader that can read `obkv`s with `u32` keys.
+pub type KvReaderOwnedU32 = KvReaderOwned<u32>;
+/// A reader that can read `obkv`s with `u64` keys.
+pub type KvReaderOwnedU64 = KvReaderOwned<u64>;
 /// An `obkv` database writer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KvWriter<W, K> {
@@ -250,6 +258,89 @@ impl<'a, K> KvReader<'a, K> {
     {
         KvIter {
             bytes: self.bytes,
+            offset: 0,
+            _phantom: PhantomData,
+        }
+        .fuse()
+    }
+}
+
+/// A owned counterpart to a `KvReader`.
+pub struct KvReaderOwned<K> {
+    bytes: Vec<u8>,
+    _phantom: PhantomData<K>,
+}
+
+impl<K> KvReaderOwned<K> {
+    /// Construct a reader owning a memory area.
+    ///
+    /// ```
+    /// use obkv::KvReaderOwnedU16;
+    ///
+    /// let reader = KvReaderOwnedU16::new(Vec::new());
+    /// let mut iter = reader.iter();
+    /// assert_eq!(iter.next(), None);
+    /// ```
+    pub fn new(bytes: Vec<u8>) -> KvReaderOwned<K> {
+        KvReaderOwned {
+            bytes,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Returns the value associated with the given key
+    /// or `None` if the key is not present.
+    ///
+    /// ```
+    /// use obkv::{KvWriterU16, KvReaderOwnedU16};
+    ///
+    /// let mut writer = KvWriterU16::memory();
+    /// writer.insert(0, b"hello").unwrap();
+    /// writer.insert(1, b"blue").unwrap();
+    /// writer.insert(255, b"world").unwrap();
+    /// let obkv = writer.into_inner().unwrap();
+    ///
+    /// let reader = KvReaderOwnedU16::new(obkv);
+    /// assert_eq!(reader.get(0), Some(&b"hello"[..]));
+    /// assert_eq!(reader.get(1), Some(&b"blue"[..]));
+    /// assert_eq!(reader.get(10), None);
+    /// assert_eq!(reader.get(255), Some(&b"world"[..]));
+    /// ```
+    pub fn get(&self, requested_key: K) -> Option<&[u8]>
+    where
+        K: Key + PartialOrd,
+    {
+        self.iter()
+            .take_while(|(key, _)| *key <= requested_key)
+            .find(|(key, _)| *key == requested_key)
+            .map(|(_, val)| val)
+    }
+
+    /// Returns an iterator over all the keys in the key-value store.
+    ///
+    /// ```
+    /// use obkv::{KvWriterU16, KvReaderOwnedU16};
+    ///
+    /// let mut writer = KvWriterU16::memory();
+    /// writer.insert(0, b"hello").unwrap();
+    /// writer.insert(1, b"blue").unwrap();
+    /// writer.insert(255, b"world").unwrap();
+    /// let obkv = writer.into_inner().unwrap();
+    ///
+    /// let reader = KvReaderOwnedU16::new(obkv);
+    /// let mut iter = reader.iter();
+    /// assert_eq!(iter.next(), Some((0, &b"hello"[..])));
+    /// assert_eq!(iter.next(), Some((1, &b"blue"[..])));
+    /// assert_eq!(iter.next(), Some((255, &b"world"[..])));
+    /// assert_eq!(iter.next(), None);
+    /// assert_eq!(iter.next(), None); // is it fused?
+    /// ```
+    pub fn iter(&self) -> Fuse<KvIter<K>>
+    where
+        K: Key,
+    {
+        KvIter {
+            bytes: &self.bytes,
             offset: 0,
             _phantom: PhantomData,
         }
