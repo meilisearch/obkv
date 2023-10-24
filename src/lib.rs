@@ -257,6 +257,15 @@ impl<'a, K> KvReader<'a, K> {
     }
 }
 
+impl<'a, K: Key> IntoIterator for KvReader<'a, K> {
+    type Item = (K, &'a [u8]);
+    type IntoIter = Fuse<KvIter<'a, K>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 /// An iterator over a `obkv` database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KvIter<'a, K> {
