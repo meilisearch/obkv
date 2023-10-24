@@ -6,7 +6,11 @@ fn varint_length_packed(data: &[u8]) -> Option<u32> {
         }
         i += 1;
     }
-    if i == data.len() { Some(0) } else { Some(i as u32 + 1) }
+    if i == data.len() {
+        Some(0)
+    } else {
+        Some(i as u32 + 1)
+    }
 }
 
 #[must_use]
@@ -43,7 +47,7 @@ pub fn varint_encode32(bytes: &mut [u8], value: u32) -> &[u8] {
 
 pub fn varint_decode32(data: &[u8], value: &mut u32) -> Option<usize> {
     let len = varint_length_packed(data.get(..data.len().min(5))?)?;
-    let mut val = (*data.get(0)? & 0x7f) as u32;
+    let mut val = (*data.first()? & 0x7f) as u32;
     if len > 1 {
         val |= ((*data.get(1)? & 0x7f) as u32) << 7;
         if len > 2 {
