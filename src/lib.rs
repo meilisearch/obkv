@@ -163,6 +163,11 @@ impl<W: io::Write, K: Key + PartialOrd> KvWriter<W, K> {
         Ok(())
     }
 
+    /// Returns `true` if not entry was written into the writer.
+    pub fn is_empty(&self) -> bool {
+        self.last_key.is_none()
+    }
+
     /// Flushes then extract the internal writer that now contains the keys value entries.
     pub fn into_inner(mut self) -> io::Result<W> {
         self.writer.flush()?;
