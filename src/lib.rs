@@ -260,6 +260,11 @@ impl<'a, K> KvReader<'a, K> {
         }
         .fuse()
     }
+
+    /// Converts a KvReader to a byte slice.
+    pub fn as_bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
 }
 
 impl<'a, K: Key> IntoIterator for KvReader<'a, K> {
