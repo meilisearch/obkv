@@ -182,6 +182,35 @@ impl<W: io::Write, K: Key + PartialOrd> KvWriter<W, K> {
     }
 }
 
+impl<K: Key + PartialOrd> KvWriter<Vec<u8>, K> {
+    // TODO find a better name
+    pub fn lazy_insert<F>(&mut self, key: K, val_length: u32, val_serialize: F) -> io::Result<()>
+    where
+        F: FnOnce(&mut [u8]) -> io::Result<()>,
+    {
+        if self.last_key.map_or(false, |last| key <= last) {
+            return Err(Error::new(
+                Other,
+                "keys must be inserted in order and only one time",
+            ));
+        }
+
+        let mut buffer = [0; 5];
+        let len_bytes = varint_encode32(&mut buffer, val_length);
+
+        self.writer.extend_from_slice(key.to_be_bytes().as_ref());
+        self.writer.extend_from_slice(len_bytes);
+
+        let len = self.writer.len();
+        self.writer.resize(len + val_length as usize, 0);
+        (val_serialize)(&mut self.writer[len..])?;
+
+        self.last_key = Some(key);
+
+        Ok(())
+    }
+}
+
 /// A reader of `obkv` databases.
 #[derive(Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
