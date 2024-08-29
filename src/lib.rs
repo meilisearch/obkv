@@ -220,6 +220,19 @@ pub struct KvReader<K> {
 }
 
 impl<K> KvReader<K> {
+    /// Construct a reader on top of a memory area.
+    ///
+    /// ```
+    /// use obkv::KvReaderU16;
+    ///
+    /// let reader = KvReaderU16::from_slice(&[][..]);
+    /// let mut iter = reader.iter();
+    /// assert_eq!(iter.next(), None);
+    /// ```
+    pub fn from_slice(bytes: &[u8]) -> &KvReader<K> {
+        bytes.into()
+    }
+
     /// Returns the value associated with the given key
     /// or `None` if the key is not present.
     ///
