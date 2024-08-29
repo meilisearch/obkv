@@ -300,6 +300,12 @@ impl<K> From<Box<[u8]>> for Box<KvReader<K>> {
     }
 }
 
+impl<K> From<Box<KvReader<K>>> for Box<[u8]> {
+    fn from(boxed_bytes: Box<KvReader<K>>) -> Self {
+        unsafe { mem::transmute(boxed_bytes) }
+    }
+}
+
 /// Construct a reader on top of a memory area.
 ///
 /// ```
