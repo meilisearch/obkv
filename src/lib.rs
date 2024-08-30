@@ -292,9 +292,14 @@ impl<K> KvReader<K> {
         .fuse()
     }
 
-    /// Converts a KvReader to a byte slice.
+    /// Converts a [`KvReader`] to a byte slice.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Converts a [`KvReader`] to a boxed `KvReader`.
+    pub fn boxed(&self) -> Box<Self> {
+        self.as_bytes().to_vec().into_boxed_slice().into()
     }
 }
 
