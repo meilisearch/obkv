@@ -85,6 +85,11 @@ impl<K> KvWriter<Vec<u8>, K> {
             writer: Vec::new(),
         }
     }
+
+    /// Converts a `KvWriter` into a boxed `KvReader`.
+    pub fn into_boxed(self) -> Box<KvReader<K>> {
+        self.writer.into_boxed_slice().into()
+    }
 }
 
 impl<W, K> KvWriter<W, K> {
