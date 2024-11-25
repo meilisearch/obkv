@@ -188,8 +188,13 @@ impl<W: io::Write, K: Key + PartialOrd> KvWriter<W, K> {
 }
 
 impl<K: Key + PartialOrd> KvWriter<Vec<u8>, K> {
-    // TODO find a better name
-    pub fn lazy_insert<F>(&mut self, key: K, val_length: u32, val_serialize: F) -> io::Result<()>
+    /// Insert a new entry and prepare a buffer to write into.
+    pub fn reserved_insert<F>(
+        &mut self,
+        key: K,
+        val_length: u32,
+        val_serialize: F,
+    ) -> io::Result<()>
     where
         F: FnOnce(&mut [u8]) -> io::Result<()>,
     {
