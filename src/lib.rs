@@ -15,7 +15,8 @@
 //! writer.insert(255, b"world").unwrap();
 //! let obkv = writer.into_inner().unwrap();
 //!
-//! let mut iter = KvReaderU16::new(&obkv).iter();
+//! let reader: &KvReaderU16 = obkv[..].into();
+//! let mut iter = reader.iter();
 //! assert_eq!(iter.next(), Some((0, &b"hello"[..])));
 //! assert_eq!(iter.next(), Some((1, &b"blue"[..])));
 //! assert_eq!(iter.next(), Some((255, &b"world"[..])));
@@ -35,6 +36,7 @@ use std::convert::{TryFrom, TryInto};
 use std::io::{self, Error, ErrorKind::Other};
 use std::iter::Fuse;
 use std::marker::PhantomData;
+use std::mem;
 
 use self::varint::{varint_decode32, varint_encode32};
 
@@ -48,13 +50,13 @@ pub type KvWriterU32<W> = KvWriter<W, u32>;
 pub type KvWriterU64<W> = KvWriter<W, u64>;
 
 /// A reader that can read `obkv`s with `u8` keys.
-pub type KvReaderU8<'a> = KvReader<'a, u8>;
+pub type KvReaderU8 = KvReader<u8>;
 /// A reader that can read `obkv`s with `u16` keys.
-pub type KvReaderU16<'a> = KvReader<'a, u16>;
+pub type KvReaderU16 = KvReader<u16>;
 /// A reader that can read `obkv`s with `u32` keys.
-pub type KvReaderU32<'a> = KvReader<'a, u32>;
+pub type KvReaderU32 = KvReader<u32>;
 /// A reader that can read `obkv`s with `u64` keys.
-pub type KvReaderU64<'a> = KvReader<'a, u64>;
+pub type KvReaderU64 = KvReader<u64>;
 
 /// An `obkv` database writer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -82,6 +84,11 @@ impl<K> KvWriter<Vec<u8>, K> {
             last_key: None,
             writer: Vec::new(),
         }
+    }
+
+    /// Converts a `KvWriter` into a boxed `KvReader`.
+    pub fn into_boxed(self) -> Box<KvReader<K>> {
+        self.writer.into_boxed_slice().into()
     }
 }
 
@@ -180,27 +187,60 @@ impl<W: io::Write, K: Key + PartialOrd> KvWriter<W, K> {
     }
 }
 
-/// A reader of `obkv` databases.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct KvReader<'a, K> {
-    bytes: &'a [u8],
-    _phantom: PhantomData<K>,
+impl<K: Key + PartialOrd> KvWriter<Vec<u8>, K> {
+    /// Insert a new entry and prepare a buffer to write into.
+    pub fn reserved_insert<F>(
+        &mut self,
+        key: K,
+        val_length: u32,
+        val_serialize: F,
+    ) -> io::Result<()>
+    where
+        F: FnOnce(&mut [u8]) -> io::Result<()>,
+    {
+        if self.last_key.map_or(false, |last| key <= last) {
+            return Err(Error::new(
+                Other,
+                "keys must be inserted in order and only one time",
+            ));
+        }
+
+        let mut buffer = [0; 5];
+        let len_bytes = varint_encode32(&mut buffer, val_length);
+
+        self.writer.extend_from_slice(key.to_be_bytes().as_ref());
+        self.writer.extend_from_slice(len_bytes);
+
+        let len = self.writer.len();
+        self.writer.resize(len + val_length as usize, 0);
+        (val_serialize)(&mut self.writer[len..])?;
+
+        self.last_key = Some(key);
+
+        Ok(())
+    }
 }
 
-impl<'a, K> KvReader<'a, K> {
+/// A reader of `obkv` databases.
+#[derive(Debug, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct KvReader<K> {
+    _phantom: PhantomData<K>,
+    bytes: [u8],
+}
+
+impl<K> KvReader<K> {
     /// Construct a reader on top of a memory area.
     ///
     /// ```
     /// use obkv::KvReaderU16;
     ///
-    /// let mut iter = KvReaderU16::new(&[]).iter();
+    /// let reader = KvReaderU16::from_slice(&[][..]);
+    /// let mut iter = reader.iter();
     /// assert_eq!(iter.next(), None);
     /// ```
-    pub fn new(bytes: &[u8]) -> KvReader<K> {
-        KvReader {
-            bytes,
-            _phantom: PhantomData,
-        }
+    pub fn from_slice(bytes: &[u8]) -> &KvReader<K> {
+        bytes.into()
     }
 
     /// Returns the value associated with the given key
@@ -215,13 +255,13 @@ impl<'a, K> KvReader<'a, K> {
     /// writer.insert(255, b"world").unwrap();
     /// let obkv = writer.into_inner().unwrap();
     ///
-    /// let reader = KvReaderU16::new(&obkv);
+    /// let reader: &KvReaderU16 = obkv[..].into();
     /// assert_eq!(reader.get(0), Some(&b"hello"[..]));
     /// assert_eq!(reader.get(1), Some(&b"blue"[..]));
     /// assert_eq!(reader.get(10), None);
     /// assert_eq!(reader.get(255), Some(&b"world"[..]));
     /// ```
-    pub fn get(&self, requested_key: K) -> Option<&'a [u8]>
+    pub fn get(&self, requested_key: K) -> Option<&[u8]>
     where
         K: Key + PartialOrd,
     {
@@ -242,32 +282,74 @@ impl<'a, K> KvReader<'a, K> {
     /// writer.insert(255, b"world").unwrap();
     /// let obkv = writer.into_inner().unwrap();
     ///
-    /// let mut iter = KvReaderU16::new(&obkv).iter();
+    /// let reader: &KvReaderU16 = obkv[..].into();
+    /// let mut iter = reader.iter();
     /// assert_eq!(iter.next(), Some((0, &b"hello"[..])));
     /// assert_eq!(iter.next(), Some((1, &b"blue"[..])));
     /// assert_eq!(iter.next(), Some((255, &b"world"[..])));
     /// assert_eq!(iter.next(), None);
     /// assert_eq!(iter.next(), None); // is it fused?
     /// ```
-    pub fn iter(&self) -> Fuse<KvIter<'a, K>>
+    pub fn iter(&self) -> Fuse<KvIter<'_, K>>
     where
         K: Key,
     {
         KvIter {
-            bytes: self.bytes,
-            offset: 0,
             _phantom: PhantomData,
+            offset: 0,
+            bytes: self.as_bytes(),
         }
         .fuse()
     }
 
-    /// Converts a KvReader to a byte slice.
-    pub fn as_bytes(&self) -> &'a [u8] {
-        self.bytes
+    /// Converts a [`KvReader`] to a byte slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Converts a [`KvReader`] to a boxed `KvReader`.
+    pub fn boxed(&self) -> Box<Self> {
+        self.as_bytes().to_vec().into_boxed_slice().into()
     }
 }
 
-impl<'a, K: Key> IntoIterator for KvReader<'a, K> {
+/// Construct a reader on top of a memory area.
+///
+/// ```
+/// use obkv::KvReaderU16;
+///
+/// let reader: Box<KvReaderU16> = Vec::new().into_boxed_slice().into();
+/// let mut iter = reader.iter();
+/// assert_eq!(iter.next(), None);
+/// ```
+impl<K> From<Box<[u8]>> for Box<KvReader<K>> {
+    fn from(boxed_bytes: Box<[u8]>) -> Self {
+        unsafe { mem::transmute(boxed_bytes) }
+    }
+}
+
+impl<K> From<Box<KvReader<K>>> for Box<[u8]> {
+    fn from(boxed_bytes: Box<KvReader<K>>) -> Self {
+        unsafe { mem::transmute(boxed_bytes) }
+    }
+}
+
+/// Construct a reader on top of a memory area.
+///
+/// ```
+/// use obkv::KvReaderU16;
+///
+/// let reader: &KvReaderU16 = [][..].into();
+/// let mut iter = reader.iter();
+/// assert_eq!(iter.next(), None);
+/// ```
+impl<'a, K> From<&'a [u8]> for &'a KvReader<K> {
+    fn from(bytes: &'a [u8]) -> Self {
+        unsafe { mem::transmute(bytes) }
+    }
+}
+
+impl<'a, K: Key> IntoIterator for &'a KvReader<K> {
     type Item = (K, &'a [u8]);
     type IntoIter = Fuse<KvIter<'a, K>>;
 
@@ -279,9 +361,9 @@ impl<'a, K: Key> IntoIterator for KvReader<'a, K> {
 /// An iterator over a `obkv` database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KvIter<'a, K> {
-    bytes: &'a [u8],
-    offset: usize,
     _phantom: PhantomData<K>,
+    offset: usize,
+    bytes: &'a [u8],
 }
 
 impl<'a, K: Key> Iterator for KvIter<'a, K> {
@@ -341,3 +423,26 @@ macro_rules! impl_key {
 }
 
 impl_key!(u8, u16, u32, u64);
+
+#[cfg(test)]
+mod test {
+    use crate::{KvReaderU8, KvWriterU8};
+
+    fn reinterpret_box_u8_to_kvreader(boxed_bytes: Box<[u8]>) -> Box<KvReaderU8> {
+        // Ensure the conversion from Box<[u8]> to Box<KvReader>
+        unsafe { std::mem::transmute(boxed_bytes) }
+    }
+
+    // You can construct an obkv and store the KvReader in owned memory.
+    #[test]
+    fn owned_kvreader() {
+        let mut writer = KvWriterU8::memory();
+        writer.insert(1, "hello").unwrap();
+        writer.insert(10, "world").unwrap();
+        writer.insert(20, "poupoupidoup").unwrap();
+        let buffer = writer.into_inner().unwrap();
+
+        let boxed = buffer.into_boxed_slice();
+        let _boxed: Box<KvReaderU8> = reinterpret_box_u8_to_kvreader(boxed);
+    }
+}
