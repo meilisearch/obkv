@@ -32,6 +32,7 @@ extern crate quickcheck;
 
 mod varint;
 
+use std::borrow::Cow;
 use std::convert::{TryFrom, TryInto};
 use std::io::{self, Error, ErrorKind::Other};
 use std::iter::Fuse;
@@ -313,6 +314,20 @@ impl<K> KvReader<K> {
     }
 }
 
+impl<K> ToOwned for KvReader<K> {
+    type Owned = Box<KvReader<K>>;
+
+    fn to_owned(&self) -> Self::Owned {
+        self.boxed()
+    }
+}
+
+impl<'a, K> From<&'a KvReader<K>> for Cow<'a, KvReader<K>> {
+    fn from(reader: &'a KvReader<K>) -> Self {
+        Cow::Borrowed(reader)
+    }
+}
+
 /// Construct a reader on top of a memory area.
 ///
 /// ```
@@ -331,6 +346,18 @@ impl<K> From<Box<[u8]>> for Box<KvReader<K>> {
 impl<K> From<Box<KvReader<K>>> for Box<[u8]> {
     fn from(boxed_bytes: Box<KvReader<K>>) -> Self {
         unsafe { mem::transmute(boxed_bytes) }
+    }
+}
+
+impl<K> From<Cow<'_, KvReader<K>>> for Box<KvReader<K>> {
+    /// Converts a `Cow<'a, KvReader<K>>` into a `Box<KvReader<K>>`,
+    /// by copying the contents if they are borrowed.
+    #[inline]
+    fn from(cow: Cow<'_, KvReader<K>>) -> Box<KvReader<K>> {
+        match cow {
+            Cow::Borrowed(r) => r.boxed(),
+            Cow::Owned(r) => r,
+        }
     }
 }
 
@@ -426,12 +453,9 @@ impl_key!(u8, u16, u32, u64);
 
 #[cfg(test)]
 mod test {
-    use crate::{KvReaderU8, KvWriterU8};
+    use std::borrow::Cow;
 
-    fn reinterpret_box_u8_to_kvreader(boxed_bytes: Box<[u8]>) -> Box<KvReaderU8> {
-        // Ensure the conversion from Box<[u8]> to Box<KvReader>
-        unsafe { std::mem::transmute(boxed_bytes) }
-    }
+    use crate::{KvReaderU8, KvWriterU8};
 
     // You can construct an obkv and store the KvReader in owned memory.
     #[test]
@@ -443,6 +467,28 @@ mod test {
         let buffer = writer.into_inner().unwrap();
 
         let boxed = buffer.into_boxed_slice();
-        let _boxed: Box<KvReaderU8> = reinterpret_box_u8_to_kvreader(boxed);
+        let _boxed: Box<KvReaderU8> = Box::<KvReaderU8>::from(boxed);
+    }
+
+    // You can use any KvReader in a Cow.
+    #[test]
+    fn cow_a_kvreader() {
+        struct MustExists<'a> {
+            reader: Cow<'a, KvReaderU8>,
+        }
+
+        let mut writer = KvWriterU8::memory();
+        writer.insert(1, "hello").unwrap();
+        writer.insert(10, "world").unwrap();
+        writer.insert(20, "poupoupidoup").unwrap();
+        let buffer = writer.into_inner().unwrap();
+
+        let reader = KvReaderU8::from_slice(&buffer);
+        let must_exists = MustExists {
+            reader: Cow::from(reader),
+        };
+
+        let MustExists { reader } = must_exists;
+        let _owned_reader: Box<KvReaderU8> = reader.into_owned();
     }
 }
